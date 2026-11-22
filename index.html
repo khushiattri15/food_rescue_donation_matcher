@@ -1,0 +1,698 @@
+<title>Food Rescue Matcher</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: sticky app bar + tab row; "Live board" is a map beside an activity feed, heaps below.
+   Other tabs are a form on the left and a step-by-step trace of the matching pipeline on the right. */
+:root {
+  --bg: #eef2ee;
+  --surface: #ffffff;
+  --surface-2: #f4f7f4;
+  --ink: #15221d;
+  --muted: #5a6a63;
+  --line: #d5ddd7;
+  --brand: #1d6b4d;
+  --brand-ink: #ffffff;
+  --brand-soft: #dcefe5;
+  --urgent: #c8410b;
+  --urgent-soft: #fbe6da;
+  --info: #1d5f8a;
+  --info-soft: #dcebf5;
+  --warn: #9a6a08;
+  --warn-soft: #f8edc9;
+  --bad: #b3261e;
+  --bad-soft: #f9dedc;
+  --bar-bg: #123a2b; --bar-ink: #eaf5ef; --bar-mute: #9cc3b0; --bar-line: rgba(255,255,255,.16); --bar-accent: #7fe3b2;
+  --shadow: 0 1px 2px rgba(20,45,33,.06), 0 6px 18px rgba(20,45,33,.06); --map-bg: #f7faf7;
+  --font-display: "Space Grotesk", "Helvetica Neue", Arial, sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0f1a16; --surface: #17251f; --surface-2: #1d2e27; --ink: #e6efea; --muted: #97aaa1; --line: #2b4036;
+    --brand: #4fc08d; --brand-ink: #08170f; --brand-soft: #1b3b2d;
+    --urgent: #ff8a55; --urgent-soft: #3d2316; --info: #6db6e8; --info-soft: #173347;
+    --warn: #e6b94d; --warn-soft: #3a2f10; --bad: #ff8b83; --bad-soft: #3d1a18;
+    --bar-bg: #0a1511; --bar-ink: #e6efea; --bar-mute: #84a193; --bar-line: rgba(255,255,255,.12); --bar-accent: #4fc08d;
+    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 6px 18px rgba(0,0,0,.25); --map-bg: #12201a;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0f1a16; --surface: #17251f; --surface-2: #1d2e27; --ink: #e6efea; --muted: #97aaa1; --line: #2b4036;
+  --brand: #4fc08d; --brand-ink: #08170f; --brand-soft: #1b3b2d;
+  --urgent: #ff8a55; --urgent-soft: #3d2316; --info: #6db6e8; --info-soft: #173347;
+  --warn: #e6b94d; --warn-soft: #3a2f10; --bad: #ff8b83; --bad-soft: #3d1a18;
+    --bar-bg: #0a1511; --bar-ink: #e6efea; --bar-mute: #84a193; --bar-line: rgba(255,255,255,.12); --bar-accent: #4fc08d;
+    --shadow: 0 1px 2px rgba(0,0,0,.35), 0 6px 18px rgba(0,0,0,.25); --map-bg: #12201a;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.5; }
+h1, h2, h3 { font-family: var(--font-display); margin: 0; text-wrap: balance; }
+button, input, select { font: inherit; color: inherit; }
+.mono { font-family: var(--font-mono); font-size: 12px; }
+.wrap { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); max-width: 1240px; margin: 0 auto; }
+
+/* top bar */
+body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 30; background: var(--bar-bg); }
+.bar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20; background: var(--bar-bg); color: var(--bar-ink); }
+.bar .wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 20px; padding-block: 10px; }
+.brand { display: flex; align-items: center; gap: 10px; margin-right: auto; }
+.brand svg { flex: none; }
+.brand h1 { font-size: 18px; letter-spacing: -0.01em; }
+.brand small { display: block; color: var(--bar-mute); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; }
+.ctl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ctl label { font-size: 11px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--bar-mute); }
+select, input[type=text], input[type=number], input[type=tel] {
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: 6px; padding: 7px 9px; min-width: 0; width: 100%;
+}
+.bar select { width: auto; max-width: 230px; background: rgba(255,255,255,.08); border-color: var(--bar-line); color: var(--bar-ink); }
+.bar select option { color: #15221d; background: #fff; }
+.bar .btn { background: transparent; border-color: var(--bar-line); color: var(--bar-ink); }
+.bar .btn:hover { background: rgba(255,255,255,.1); }
+.bar :focus-visible { outline-color: var(--bar-accent); }
+:focus-visible { outline: 2px solid var(--info); outline-offset: 2px; }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: 6px; padding: 7px 12px; cursor: pointer; font-weight: 500; transition: background .15s, filter .15s, transform .1s; }
+.btn:active { transform: translateY(1px); }
+input:focus, select:focus { border-color: var(--brand); outline: none; box-shadow: 0 0 0 3px var(--brand-soft); }
+.btn:hover { background: var(--surface-2); }
+.btn.primary { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.sm { padding: 4px 9px; font-size: 12px; }
+.clock { font-family: var(--font-mono); background: rgba(255,255,255,.08); border: 1px solid var(--bar-line); border-radius: 6px; padding: 6px 10px; font-size: 13px; color: var(--bar-ink); }
+
+nav.tabs { display: flex; gap: 2px; overflow-x: auto; padding-block: 0; }
+nav.tabs button { background: none; border: 0; border-bottom: 3px solid transparent; padding: 10px 14px; cursor: pointer; color: var(--bar-mute); font-weight: 500; white-space: nowrap; transition: color .15s; }
+nav.tabs button[aria-selected=true] { color: var(--bar-ink); border-bottom-color: var(--bar-accent); }
+nav.tabs button:hover { color: var(--bar-ink); }
+
+main { padding-block: 18px 40px; display: grid; gap: 16px; }
+.grid2 { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 16px; }
+.grid2e { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+.grid-form { display: grid; grid-template-columns: minmax(0, 420px) minmax(0, 1fr); gap: 16px; }
+@media (max-width: 860px) { .grid2, .grid2e, .grid-form { grid-template-columns: minmax(0, 1fr); } }
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px; min-width: 0; box-shadow: var(--shadow); }
+.card h2 { font-size: 16px; margin-bottom: 4px; }
+.card .sub { color: var(--muted); font-size: 12.5px; margin: 0 0 12px; }
+.pill { display: inline-block; padding: 1px 8px; border-radius: 99px; font-size: 11.5px; font-weight: 600; white-space: nowrap; }
+.pill.good { background: var(--brand-soft); color: var(--brand); }
+.pill.urgent { background: var(--urgent-soft); color: var(--urgent); }
+.pill.info { background: var(--info-soft); color: var(--info); }
+.pill.warn { background: var(--warn-soft); color: var(--warn); }
+.pill.bad { background: var(--bad-soft); color: var(--bad); }
+.pill.mute { background: var(--surface-2); color: var(--muted); border: 1px solid var(--line); }
+
+/* forms */
+form { display: grid; gap: 12px; }
+.field { display: grid; gap: 4px; }
+.field > span { font-size: 12px; color: var(--muted); font-weight: 500; }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.check { display: flex; gap: 8px; align-items: flex-start; }
+.check input { margin-top: 3px; }
+.notice { padding: 10px 12px; border-radius: 8px; background: var(--warn-soft); color: var(--warn); font-size: 13px; }
+.seg { display: flex; gap: 6px; flex-wrap: wrap; }
+.seg label { flex: 1; min-width: 70px; }
+.seg input { position: absolute; opacity: 0; }
+.seg span { display: block; text-align: center; padding: 7px 4px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; background: var(--surface-2); font-size: 13px; }
+.seg input:checked + span { background: var(--brand); color: var(--brand-ink); border-color: var(--brand); }
+.seg input:focus-visible + span { outline: 2px solid var(--info); outline-offset: 2px; }
+
+/* map */
+.mapbox { width: 100%; aspect-ratio: 1 / 1; max-height: 640px; background: var(--map-bg); border: 1px solid var(--line); border-radius: 8px; display: block; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 12px; color: var(--muted); margin-top: 10px; }
+.legend i { display: inline-block; width: 10px; height: 10px; margin-right: 5px; vertical-align: -1px; }
+svg text { font-family: var(--font-body); }
+
+/* lists */
+.list { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.item { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); }
+.item.first { border-color: var(--brand); background: var(--brand-soft); }
+.item .rank { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.item b { font-weight: 600; }
+.item .meta { color: var(--muted); font-size: 12px; grid-column: 2 / 4; }
+.empty { color: var(--muted); padding: 14px; border: 1px dashed var(--line); border-radius: 8px; text-align: center; }
+
+.feed { display: grid; gap: 0; max-height: 600px; overflow: auto; margin: 0; padding: 0; list-style: none; }
+.feed li { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.feed li:last-child { border-bottom: 0; }
+.feed li.empty { display: block; }
+.fi { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; background: var(--info-soft); color: var(--info); }
+.match .fi { background: var(--brand-soft); color: var(--brand); }
+.warn .fi { background: var(--urgent-soft); color: var(--urgent); }
+.err .fi { background: var(--bad-soft); color: var(--bad); }
+.feed time { display: block; font-family: var(--font-mono); font-size: 11px; color: var(--muted); }
+
+/* trace */
+.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0; }
+.steps li { display: grid; grid-template-columns: 26px minmax(0, 1fr); gap: 10px; padding-bottom: 14px; position: relative; }
+.steps li::before { content: ""; position: absolute; left: 12px; top: 26px; bottom: 0; width: 2px; background: var(--line); }
+.steps li:last-child::before { display: none; }
+.dot { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; font-weight: 700; background: var(--surface-2); border: 2px solid var(--line); color: var(--muted); }
+.steps .ok .dot { background: var(--brand); border-color: var(--brand); color: var(--brand-ink); }
+.steps .fail .dot { background: var(--bad); border-color: var(--bad); color: #fff; }
+.steps .wait .dot { background: var(--warn-soft); border-color: var(--warn); color: var(--warn); }
+.steps h3 { font-size: 14px; }
+.steps p { margin: 2px 0 0; color: var(--muted); font-size: 12.5px; }
+.ds { font-family: var(--font-mono); font-size: 11px; color: var(--info); background: var(--info-soft); padding: 0 6px; border-radius: 4px; margin-left: 6px; white-space: nowrap; }
+
+/* tables */
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 13px; }
+th, td { padding: 7px 9px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); font-weight: 600; }
+table.mx td, table.mx th { text-align: center; font-family: var(--font-mono); padding: 5px 7px; }
+table.mx td.on { background: var(--brand-soft); color: var(--brand); font-weight: 600; }
+table.mx td.zero { color: var(--muted); }
+.algo { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0; align-items: center; }
+.pre { font-family: var(--font-mono); font-size: 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; overflow-x: auto; white-space: pre; margin: 0; }
+.hero { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 16px 32px; align-items: center; padding-block: 4px 2px; }
+.hero h2 { font-size: clamp(24px, 3.4vw, 34px); line-height: 1.1; letter-spacing: -0.02em; }
+.hero p { margin: 8px 0 0; color: var(--muted); max-width: 46ch; }
+@media (max-width: 860px) { .hero { grid-template-columns: minmax(0, 1fr); } }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); background: var(--surface); border: 1px solid var(--line); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; }
+.stat { padding: 12px 14px; border-right: 1px solid var(--line); min-width: 0; }
+.stat:last-child { border-right: 0; }
+.stat b { display: block; font-family: var(--font-display); font-size: 26px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.stat span { font-size: 11.5px; color: var(--muted); }
+.stat.hot b { color: var(--urgent); }
+@media (max-width: 560px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } .stat:nth-child(2) { border-right: 0; } .stat:nth-child(-n+2) { border-bottom: 1px solid var(--line); } }
+.card-h { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+.meter { grid-column: 2 / 4; height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; }
+.meter i { display: block; height: 100%; background: var(--brand); border-radius: 3px; }
+.meter.low i { background: var(--urgent); }
+.dots { grid-column: 2 / 4; display: flex; gap: 4px; }
+.dots i { width: 22px; height: 5px; border-radius: 3px; background: var(--line); }
+.dots i.on { background: var(--info); }
+.dots.hi i.on { background: var(--urgent); }
+.item { transition: border-color .15s; }
+@media (prefers-reduced-motion: no-preference) {
+  .flash { stroke-dasharray: 200; stroke-dashoffset: 200; animation: draw .9s ease-out forwards; }
+  @keyframes draw { to { stroke-dashoffset: 0; } }
+}
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 8px; z-index: 40; max-width: calc(100% - 32px); font-size: 13px; }
+@media (prefers-reduced-motion: no-preference) { .toast { animation: rise .2s ease-out; } @keyframes rise { from { opacity: 0; transform: translate(-50%, 8px); } } }
+</style>
+
+<header class="bar">
+  <div class="wrap">
+    <div class="brand">
+      <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="8" fill="var(--bar-accent)"/><path d="M8 18h16l-2 6H10z" fill="var(--bar-bg)"/><path d="M16 7c4 0 6 3 6 6h-12c0-3 2-6 6-6z" fill="var(--bar-bg)"/></svg>
+      <div><h1>Food Rescue Matcher</h1><small>Data Structures Lab prototype</small></div>
+    </div>
+    <div class="ctl"><label for="actAs">Acting as</label><select id="actAs"></select></div>
+    <div class="ctl">
+      <span class="clock" id="clock">Hour 0</span>
+      <button class="btn sm" data-adv="1" type="button">+1 h</button>
+      <button class="btn sm" data-adv="6" type="button">+6 h</button>
+      <button class="btn sm" id="resetBtn" type="button">Reset demo</button>
+    </div>
+  </div>
+  <div class="wrap"><nav class="tabs" role="tablist" id="tabs"></nav></div>
+</header>
+<main class="wrap" id="view"></main>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+"use strict";
+/* ============================================================
+   DATA STRUCTURES (same ideas as the C++ project)
+   ============================================================ */
+const GRID = 10, CELL = 10, MAX_RADIUS = 15, MIN_SHELF = 1;
+
+class MinHeap {                       // array-based min-heap (key, then tie)
+  constructor() { this.a = []; }
+  less(x, y) { return x.key !== y.key ? x.key < y.key : x.tie < y.tie; }
+  get size() { return this.a.length; }
+  top() { return this.a[0]; }         // heap-peek
+  push(it) {
+    const a = this.a; a.push(it); let i = a.length - 1;
+    while (i > 0) { const p = (i - 1) >> 1; if (this.less(a[i], a[p])) { [a[i], a[p]] = [a[p], a[i]]; i = p; } else break; }
+  }
+  pop() {
+    const a = this.a, t = a[0], last = a.pop();
+    if (a.length) {
+      a[0] = last; let i = 0;
+      for (;;) {
+        const l = 2 * i + 1, r = l + 1; let m = i;
+        if (l < a.length && this.less(a[l], a[m])) m = l;
+        if (r < a.length && this.less(a[r], a[m])) m = r;
+        if (m === i) break;
+        [a[i], a[m]] = [a[m], a[i]]; i = m;
+      }
+    }
+    return t;
+  }
+  sorted() { const c = new MinHeap(); c.a = this.a.slice(); const out = []; while (c.size) out.push(c.pop()); return out; }
+}
+
+class Queue {                         // linked-list FIFO (intake pipeline)
+  constructor() { this.head = null; this.tail = null; this.n = 0; }
+  get empty() { return !this.head; }
+  enqueue(v) { const nd = { v, next: null }; if (this.tail) this.tail.next = nd; else this.head = nd; this.tail = nd; this.n++; }
+  dequeue() { const nd = this.head; this.head = nd.next; if (!this.head) this.tail = null; this.n--; return nd.v; }
+}
+
+class GridIndex {                     // 10 x 10 spatial grid, 10 km per cell
+  constructor() { this.cells = Array.from({ length: GRID }, () => Array.from({ length: GRID }, () => [])); }
+  c(v) { return Math.max(0, Math.min(GRID - 1, Math.floor(v / CELL))); }
+  insert(id, x, y) { this.cells[this.c(x)][this.c(y)].push(id); }
+  remove(id, x, y) { const cell = this.cells[this.c(x)][this.c(y)]; const i = cell.indexOf(id); if (i >= 0) cell.splice(i, 1); }
+  nearby(x, y, r) {
+    const ids = [], scanned = [];
+    for (let i = this.c(x - r); i <= this.c(x + r); i++)
+      for (let j = this.c(y - r); j <= this.c(y + r); j++) { scanned.push([i, j]); ids.push(...this.cells[i][j]); }
+    return { ids, scanned };
+  }
+}
+
+class MatchHistory {                  // singly linked list, newest at tail
+  constructor() { this.head = null; this.tail = null; this.n = 0; }
+  add(m) { const nd = { m, next: null }; if (this.tail) this.tail.next = nd; else this.head = nd; this.tail = nd; this.n++; }
+  toArray() { const out = []; for (let p = this.head; p; p = p.next) out.push(p.m); return out; }
+}
+
+class CityGraph {                     // 8 hubs; adjacency matrix AND adjacency list
+  constructor() {
+    this.hubs = [
+      ["Central Market", 50, 50], ["North Station", 50, 85], ["East Colony", 85, 50], ["South Park", 50, 15],
+      ["West Enclave", 15, 50], ["NE Sector", 80, 80], ["SE Sector", 80, 20], ["NW Campus", 20, 80]
+    ].map(([name, x, y]) => ({ name, x, y }));
+    this.N = this.hubs.length;
+    this.matrix = Array.from({ length: this.N }, () => Array(this.N).fill(0));
+    this.adj = Array.from({ length: this.N }, () => []);
+    this.edges = [];
+    [[0,1,35],[0,2,35],[0,3,35],[0,4,35],[1,5,31],[1,7,31],[2,5,31],[2,6,31],[3,6,31],[4,7,31],[0,5,45],[0,6,45],[3,4,50]]
+      .forEach(([u, v, w]) => this.addRoad(u, v, w));
+  }
+  addRoad(u, v, w) {
+    this.matrix[u][v] = this.matrix[v][u] = w;
+    this.adj[u].push([v, w]); this.adj[v].push([u, w]);
+    this.edges.push({ u, v, w });
+  }
+  nearestHub(x, y) {
+    let best = 0, bd = Infinity;
+    this.hubs.forEach((h, i) => { const d = Math.hypot(x - h.x, y - h.y); if (d < bd) { bd = d; best = i; } });
+    return best;
+  }
+  bfs(src) {
+    const order = [], parent = Array(this.N).fill(-1), level = Array(this.N).fill(-1), seen = Array(this.N).fill(false);
+    const q = new Queue(); q.enqueue(src); seen[src] = true; level[src] = 0;
+    while (!q.empty) {
+      const u = q.dequeue(); order.push(u);
+      for (const [v] of this.adj[u]) if (!seen[v]) { seen[v] = true; parent[v] = u; level[v] = level[u] + 1; q.enqueue(v); }
+    }
+    return { order, parent, level };
+  }
+  dfs(src) {
+    const seen = Array(this.N).fill(false), order = [];
+    const visit = u => { seen[u] = true; order.push(u); for (const [v] of this.adj[u]) if (!seen[v]) visit(v); };
+    visit(src); return order;
+  }
+  route(s, t) {
+    const { parent } = this.bfs(s), path = [];
+    for (let v = t; v !== -1; v = parent[v]) path.push(v);
+    return path.reverse();
+  }
+  prim() {
+    const inTree = Array(this.N).fill(false), tree = [], pq = new MinHeap(); let total = 0;
+    pq.push({ key: 0, tie: 0, id: 0 });
+    while (pq.size && tree.length < this.N - 1) {
+      const t = pq.pop(), v = t.id;
+      if (inTree[v]) continue;
+      inTree[v] = true;
+      if (v !== 0) { tree.push({ u: t.tie, v, w: t.key }); total += t.key; }
+      for (const [nb, w] of this.adj[v]) if (!inTree[nb]) pq.push({ key: w, tie: v, id: nb });
+    }
+    return { tree, total };
+  }
+  kruskal() {
+    const sorted = this.edges.slice().sort((a, b) => a.w - b.w), parent = [...Array(this.N).keys()], tree = []; let total = 0;
+    const find = x => parent[x] === x ? x : (parent[x] = find(parent[x]));
+    for (const e of sorted) {
+      if (tree.length === this.N - 1) break;
+      const a = find(e.u), b = find(e.v);
+      if (a !== b) { parent[a] = b; tree.push(e); total += e.w; }
+    }
+    return { tree, total };
+  }
+}
+
+/* ============================================================
+   SYSTEM STATE + MATCHING LOGIC
+   ============================================================ */
+const city = new CityGraph();
+let S;                                // whole system state
+
+function freshState() {
+  return {
+    clock: 0, nextMatch: 0, counters: { D: 0, R: 0 },
+    profiles: new Map(),              // hash map: id -> profile (O(1) lookup)
+    donations: [], requests: [],
+    donationHeap: new MinHeap(), requestHeap: new MinHeap(),
+    donationQ: new Queue(), requestQ: new Queue(),
+    grid: new GridIndex(), history: new MatchHistory(),
+    feed: [], lastScan: [], lastQuery: null
+  };
+}
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+const complete = p => !!p && p.active && p.name.trim() !== "" && p.phone.trim() !== "" && p.phone.trim() !== "-";
+const log = (kind, html) => { S.feed.unshift({ kind, html, t: S.clock }); if (S.feed.length > 80) S.feed.pop(); };
+
+function addProfile({ type, name, phone, x, y }) {
+  const id = type + String(++S.counters[type]).padStart(3, "0");
+  const p = { id, type, name: name.trim(), phone: phone.trim(), x: +x, y: +y, active: true };
+  S.profiles.set(id, p);
+  return p;
+}
+
+function processIntake() {            // queue -> heap + grid
+  while (!S.donationQ.empty) {
+    const d = S.donations[S.donationQ.dequeue() - 1];
+    d.status = "OPEN"; S.donationHeap.push({ key: d.expiry, tie: d.id, id: d.id }); S.grid.insert(d.id, d.x, d.y);
+  }
+  while (!S.requestQ.empty) {
+    const r = S.requests[S.requestQ.dequeue() - 1];
+    r.status = "OPEN"; S.requestHeap.push({ key: r.urgency, tie: r.id, id: r.id });
+  }
+}
+
+function purgeExpired() {             // peek the soonest-expiring donation
+  while (S.donationHeap.size) {
+    const top = S.donationHeap.top(), d = S.donations[top.id - 1];
+    if (d.status !== "OPEN") { S.donationHeap.pop(); continue; }
+    if (d.expiry > S.clock) break;
+    S.donationHeap.pop(); d.status = "EXPIRED"; S.grid.remove(d.id, d.x, d.y);
+    log("warn", `<b>Donation #${d.id}</b> (${esc(d.food)}, ${d.remaining} left) spoiled and was removed from the heap.`);
+  }
+}
+
+function findBestDonation(r) {
+  const q = S.grid.nearby(r.x, r.y, MAX_RADIUS);
+  S.lastScan = q.scanned; S.lastQuery = { x: r.x, y: r.y };
+  let best = null, bd = Infinity, blocked = false;
+  for (const id of q.ids) {
+    const d = S.donations[id - 1];
+    if (d.status !== "OPEN" || d.remaining <= 0 || d.food.toLowerCase() !== r.food.toLowerCase() || d.expiry <= S.clock) continue;
+    const dd = dist(r, d); if (dd > MAX_RADIUS) continue;
+    if (!complete(S.profiles.get(d.donorId))) { blocked = true; continue; }
+    if (!best || dd < bd || (dd === bd && d.expiry < best.expiry)) { best = d; bd = dd; }
+  }
+  return { best, blocked, scanned: q.scanned.length, candidates: q.ids.length };
+}
+
+function createMatch(d, r) {
+  const q = Math.min(d.remaining, r.remaining);
+  d.remaining -= q; r.remaining -= q;
+  if (!d.remaining) { d.status = "MATCHED"; S.grid.remove(d.id, d.x, d.y); }
+  S.flash = S.nextMatch + 1;
+  const m = { id: ++S.nextMatch, donationId: d.id, requestId: r.id, donorId: d.donorId, recipId: r.recipId, food: d.food, qty: q, km: dist(d, r), t: S.clock,
+    route: city.route(city.nearestHub(d.x, d.y), city.nearestHub(r.x, r.y)) };
+  S.history.add(m);
+  const dn = S.profiles.get(m.donorId), rn = S.profiles.get(m.recipId);
+  log("match", `<b>Match #${m.id}</b>: ${q} × ${esc(m.food)} · ${esc(dn.name)} → ${esc(rn.name)} · ${m.km.toFixed(1)} km<br><span class="mono">notify ${m.donorId}: pickup by ${esc(rn.name)} · notify ${m.recipId}: food available from ${esc(dn.name)}</span>`);
+  return m;
+}
+
+/* One matching round. Returns outcome lines so the UI can show a trace. */
+function runMatching() {
+  const out = [];
+  processIntake(); purgeExpired();
+  const leftover = [];
+  while (S.requestHeap.size) {
+    const top = S.requestHeap.pop(), r = S.requests[top.id - 1];
+    if (r.status !== "OPEN") continue;
+    const rp = S.profiles.get(r.recipId);
+    if (!complete(rp)) {
+      out.push({ ok: false, kind: "profile", text: `Request #${r.id}: recipient profile is incomplete or inactive. It stays queued.` });
+      log("err", `<b>Profile error</b>: ${esc(rp ? rp.name : r.recipId)} must finish their profile before request #${r.id} can match.`);
+      leftover.push(top); continue;
+    }
+    while (r.remaining > 0) {
+      const f = findBestDonation(r);
+      if (!f.best) {
+        if (f.blocked) { out.push({ ok: false, kind: "profile", text: `Request #${r.id}: a nearby donor has an incomplete profile, so no match was made.` });
+          log("err", `<b>Profile error</b>: a nearby donor for request #${r.id} has an incomplete profile.`); }
+        else { out.push({ ok: null, kind: "wait", text: `Request #${r.id} (${esc(r.food)}): grid scanned ${f.scanned} cells, ${f.candidates} candidates, none usable. Insufficient match, it stays queued.` });
+          log("info", `<b>Insufficient match</b>: request #${r.id} (${esc(r.food)}) is waiting for a donation.`); }
+        break;
+      }
+      const m = createMatch(f.best, r);
+      out.push({ ok: true, kind: "match", text: `Match #${m.id}: ${m.qty} × ${esc(m.food)} over ${m.km.toFixed(1)} km. Route: ${m.route.map(i => city.hubs[i].name).join(" → ")}.` });
+    }
+    if (r.remaining > 0) leftover.push(top); else r.status = "FULFILLED";
+  }
+  leftover.forEach(x => S.requestHeap.push(x));
+  return out;
+}
+
+/* ============================================================
+   SUBMISSIONS (donate / request) with a step trace
+   ============================================================ */
+function submitDonation(p, f) {
+  const steps = [];
+  const hrs = +f.hours, food = f.food.trim();
+  const safe = hrs >= MIN_SHELF && f.quality && food && f.qty > 0;
+  if (!complete(p)) { steps.push({ s: "fail", h: "Profile check", d: "Profile incomplete. Add a phone number in Profiles first.", ds: "hash map" }); return steps; }
+  steps.push({ s: "ok", h: "Profile check", d: `${esc(p.name)} (${p.id}) found by ID and is complete.`, ds: "hash map" });
+  if (!safe) {
+    steps.push({ s: "fail", h: "Food safety check", d: `Rejected with a donation error: ${!f.quality ? "quality check failed" : "less than " + MIN_SHELF + " hour left before expiry"}.`, ds: "validation" });
+    log("err", `<b>Donation error</b>: ${esc(food || "item")} from ${esc(p.name)} failed the safety check.`); return steps;
+  }
+  steps.push({ s: "ok", h: "Food safety check", d: `Fresh, ${hrs} h before expiry.`, ds: "validation" });
+  const d = { id: S.donations.length + 1, donorId: p.id, food, qty: +f.qty, remaining: +f.qty, expiry: S.clock + hrs, posted: S.clock, x: p.x, y: p.y, status: "QUEUED" };
+  S.donations.push(d); S.donationQ.enqueue(d.id);
+  log("info", `<b>Donation #${d.id}</b> accepted: ${d.qty} × ${esc(food)} from ${esc(p.name)}, expires in ${hrs} h.`);
+  steps.push({ s: "ok", h: "Intake queue", d: `Donation #${d.id} enqueued (FIFO), then moved into the expiry heap and the grid cell (${S.grid.c(d.x)}, ${S.grid.c(d.y)}).`, ds: "queue · min-heap · grid" });
+  const res = runMatching();
+  if (!res.length) steps.push({ s: "wait", h: "Quantity / need check", d: "No open requests. The donation waits in the heap.", ds: "heap peek" });
+  res.forEach(o => steps.push({ s: o.ok === true ? "ok" : o.ok === false ? "fail" : "wait", h: o.kind === "match" ? "Match created" : o.kind === "profile" ? "Eligibility check" : "Quantity / need check", d: o.text, ds: o.kind === "match" ? "linked list · graph BFS" : "heap peek" }));
+  return steps;
+}
+
+function submitRequest(p, f) {
+  const steps = [];
+  if (!complete(p)) { steps.push({ s: "fail", h: "Profile check", d: "Profile incomplete. Add a phone number in Profiles first.", ds: "hash map" }); return steps; }
+  steps.push({ s: "ok", h: "Profile check", d: `${esc(p.name)} (${p.id}) found by ID and is complete.`, ds: "hash map" });
+  const r = { id: S.requests.length + 1, recipId: p.id, food: f.food.trim(), qty: +f.qty, remaining: +f.qty, urgency: +f.urgency, x: p.x, y: p.y, status: "QUEUED" };
+  S.requests.push(r); S.requestQ.enqueue(r.id);
+  log("info", `<b>Request #${r.id}</b>: ${r.qty} × ${esc(r.food)} for ${esc(p.name)}, urgency ${r.urgency}.`);
+  steps.push({ s: "ok", h: "Intake queue", d: `Request #${r.id} enqueued, then pushed into the urgency heap (urgency ${r.urgency}, 1 = first).`, ds: "queue · min-heap" });
+  const res = runMatching();
+  res.forEach(o => steps.push({ s: o.ok === true ? "ok" : o.ok === false ? "fail" : "wait", h: o.kind === "match" ? "Match created" : o.kind === "profile" ? "Eligibility check" : "Quantity / need check", d: o.text, ds: o.kind === "match" ? "grid · linked list · BFS" : "grid · heap peek" }));
+  return steps;
+}
+
+function seedDemo() {
+  S = freshState();
+  const D = [["D", "Asha Bakery", "98100 11111", 62, 35], ["D", "Spice Route Caterers", "98100 22222", 22, 72], ["D", "Green Leaf Hotel", "98100 33333", 80, 75]];
+  const R = [["R", "Hope Shelter", "98100 44444", 70, 25], ["R", "Seva NGO", "98100 55555", 25, 60], ["R", "Night Kitchen", "-", 45, 80]];
+  [...D, ...R].forEach(([type, name, phone, x, y]) => addProfile({ type, name, phone, x, y }));
+  const g = id => S.profiles.get(id);
+  submitDonation(g("D001"), { food: "bread", qty: 20, hours: 6, quality: true });
+  submitDonation(g("D002"), { food: "rice", qty: 40, hours: 10, quality: true });
+  submitDonation(g("D003"), { food: "curry", qty: 30, hours: 5, quality: true });
+  submitRequest(g("R002"), { food: "rice", qty: 15, urgency: 2 });
+  submitRequest(g("R001"), { food: "dal", qty: 10, urgency: 1 });
+  S.feed.unshift({ kind: "info", html: "<b>Demo loaded.</b> Hope Shelter is waiting for dal. Switch to a donor and donate dal to see a match. Night Kitchen has no phone, so its profile is incomplete.", t: 0 });
+  S.me = "D001"; S.tab = S.tab || "board"; S.trace = null; S.trAlgo = null;
+}
+
+/* ============================================================
+   UI
+   ============================================================ */
+const $ = s => document.querySelector(s);
+const TABS = [["board", "Live board"], ["donate", "Donate food"], ["request", "Request food"], ["profiles", "Profiles"], ["graph", "Graph lab"], ["matches", "Match history"]];
+let toastTimer, anim = null;
+function toast(msg) { const t = $("#toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastTimer); toastTimer = setTimeout(() => t.hidden = true, 2800); }
+const me = () => S.profiles.get(S.me);
+const hrsLeft = d => d.expiry - S.clock;
+const km = n => n.toFixed(1) + " km";
+
+function mapSVG() {
+  const Y = y => 100 - y, H = 'paint-order="stroke" stroke="var(--map-bg)" stroke-width="1.2" stroke-linejoin="round"';
+  const cells = S.lastScan.map(([i, j]) => `<rect x="${i * CELL}" y="${Y((j + 1) * CELL)}" width="${CELL}" height="${CELL}" fill="var(--info)" opacity=".15"/>`).join("");
+  let g = "";
+  for (let i = 0; i <= GRID; i++) g += `<line x1="${i * CELL}" y1="0" x2="${i * CELL}" y2="100" stroke="var(--line)" stroke-width=".25"/><line x1="0" y1="${i * CELL}" x2="100" y2="${i * CELL}" stroke="var(--line)" stroke-width=".25"/>`;
+  for (let v = 0; v <= 100; v += 20) g += `<text x="${v}" y="104.5" font-size="2.4" text-anchor="middle" fill="var(--muted)">${v}</text><text x="-1.6" y="${Y(v) + .8}" font-size="2.4" text-anchor="end" fill="var(--muted)">${v}</text>`;
+  g += `<line x1="4" y1="96" x2="14" y2="96" stroke="var(--ink)" stroke-width=".6"/><text x="9" y="94.2" font-size="2.2" text-anchor="middle" fill="var(--ink)" ${H}>10 km</text>`;
+  const roads = city.edges.map(e => `<line x1="${city.hubs[e.u].x}" y1="${Y(city.hubs[e.u].y)}" x2="${city.hubs[e.v].x}" y2="${Y(city.hubs[e.v].y)}" stroke="var(--muted)" stroke-width=".45" stroke-dasharray="1.4 1.2" opacity=".55"/>`).join("");
+  const hubs = city.hubs.map(h => `<g><circle cx="${h.x}" cy="${Y(h.y)}" r="1.4" fill="var(--map-bg)" stroke="var(--muted)" stroke-width=".5"/><text x="${h.x}" y="${Y(h.y) - 2.4}" font-size="2.3" text-anchor="middle" fill="var(--muted)" letter-spacing=".1" ${H}>${esc(h.name.toUpperCase())}</text></g>`).join("");
+  const ms = S.history.toArray().map(m => { const d = S.donations[m.donationId - 1], r = S.requests[m.requestId - 1];
+    return `<line class="${S.flash === m.id ? "flash" : ""}" x1="${d.x}" y1="${Y(d.y)}" x2="${r.x}" y2="${Y(r.y)}" stroke="var(--brand)" stroke-width="1" stroke-linecap="round"/>`; }).join("");
+  const q = S.lastQuery ? `<circle cx="${S.lastQuery.x}" cy="${Y(S.lastQuery.y)}" r="${MAX_RADIUS}" fill="none" stroke="var(--info)" stroke-width=".35" stroke-dasharray="1 1"/>` : "";
+  const prof = [...S.profiles.values()].map(p => {
+    const sel = p.id === S.me, col = !complete(p) ? "var(--warn)" : p.type === "D" ? "var(--brand)" : "var(--urgent)";
+    const shape = p.type === "D" ? `<rect x="${p.x - 2.1}" y="${Y(p.y) - 2.1}" width="4.2" height="4.2" rx=".8" fill="${col}" stroke="var(--map-bg)" stroke-width=".5"/>` : `<circle cx="${p.x}" cy="${Y(p.y)}" r="2.4" fill="${col}" stroke="var(--map-bg)" stroke-width=".5"/>`;
+    return `<g><title>${esc(p.name)} (${p.id}), ${complete(p) ? "complete" : "incomplete"}</title>${sel ? `<circle cx="${p.x}" cy="${Y(p.y)}" r="4.4" fill="none" stroke="var(--ink)" stroke-width=".5" stroke-dasharray="1.2 .8"/>` : ""}${shape}<text x="${p.x}" y="${Y(p.y) + 6}" font-size="2.7" text-anchor="middle" fill="var(--ink)" font-weight="600" ${H}>${esc(p.name.split(" ")[0])}</text></g>`; }).join("");
+  const open = S.donations.filter(d => d.status === "OPEN").map(d => `<text x="${d.x + 3}" y="${Y(d.y) - 1.4}" font-size="2.4" font-weight="600" fill="var(--brand)" ${H}>${esc(d.food)} ×${d.remaining}</text>`).join("");
+  const reqs = S.requests.filter(r => r.status === "OPEN").map(r => `<text x="${r.x + 3.4}" y="${Y(r.y) - 1.4}" font-size="2.4" font-weight="600" fill="var(--urgent)" ${H}>needs ${esc(r.food)} ×${r.remaining}</text>`).join("");
+  return `<svg class="mapbox" viewBox="-7 -3 112 112" role="img" aria-label="City map with donors, recipients, hubs and matches">${cells}${g}${roads}${q}${ms}${hubs}${prof}${open}${reqs}</svg>`;
+}
+
+function heapLists() {
+  const dl = S.donationHeap.sorted().map(h => S.donations[h.id - 1]).filter(d => d.status === "OPEN");
+  const rl = S.requestHeap.sorted().map(h => S.requests[h.id - 1]).filter(r => r.status === "OPEN");
+  const dHtml = dl.length ? dl.map((d, i) => { const left = hrsLeft(d), pct = Math.max(4, Math.min(100, 100 * left / (d.expiry - d.posted)));
+    return `<li class="item ${i === 0 ? "first" : ""}"><span class="rank">#${i + 1}</span><span><b>${d.remaining} × ${esc(d.food)}</b> · ${esc(S.profiles.get(d.donorId).name)}</span>
+      <span class="pill ${left <= 3 ? "urgent" : "good"}">${left} h left</span><div class="meter ${left <= 3 ? "low" : ""}" aria-hidden="true"><i style="width:${pct}%"></i></div><span class="meta">Donation #${d.id} · expires at hour ${d.expiry}</span></li>`; }).join("") : `<li class="empty">No open donations. Donate food to fill the heap.</li>`;
+  const rHtml = rl.length ? rl.map((r, i) => `<li class="item ${i === 0 ? "first" : ""}"><span class="rank">#${i + 1}</span><span><b>${r.remaining} × ${esc(r.food)}</b> · ${esc(S.profiles.get(r.recipId).name)}</span>
+      <span class="pill ${r.urgency <= 2 ? "urgent" : "info"}">urgency ${r.urgency}</span><div class="dots ${r.urgency <= 2 ? "hi" : ""}" aria-hidden="true">${[1, 2, 3, 4, 5].map(n => `<i class="${n <= 6 - r.urgency ? "on" : ""}"></i>`).join("")}</div><span class="meta">Request #${r.id} · waiting for a match</span></li>`).join("") : `<li class="empty">No open requests. Everyone waiting has been matched.</li>`;
+  return { dHtml, rHtml, nD: dl.length, nR: rl.length, soon: dl.length ? hrsLeft(dl[0]) : null };
+}
+
+const ICON = { match: "⇄", warn: "!", err: "✕", info: "i" };
+function feedHTML() {
+  return S.feed.length ? S.feed.map(f => `<li class="${f.kind}"><span class="fi" aria-hidden="true">${ICON[f.kind] || "i"}</span><div><time>hour ${f.t}</time>${f.html}</div></li>`).join("") : `<li class="empty">Nothing has happened yet.</li>`;
+}
+
+function traceHTML(title) {
+  if (!S.trace) return `<div class="card"><h2>${title}</h2><p class="sub">Each submission runs through the same pipeline as the C++ menu flow. The steps appear here.</p><div class="empty">Submit the form to see the steps.</div></div>`;
+  return `<div class="card"><h2>${title}</h2><p class="sub">The tag on each step names the data structure doing the work.</p><ol class="steps">${S.trace.map((s, i) =>
+    `<li class="${s.s}"><span class="dot">${s.s === "ok" ? "✓" : s.s === "fail" ? "✕" : s.s === "wait" ? "…" : i + 1}</span><div><h3>${s.h}<span class="ds">${s.ds}</span></h3><p>${s.d}</p></div></li>`).join("")}</ol></div>`;
+}
+
+const FOODS = ["bread", "rice", "dal", "curry", "vegetables", "fruit"];
+
+function viewBoard() {
+  const { dHtml, rHtml, nD, nR, soon } = heapLists();
+  const meals = S.history.toArray().reduce((a, m) => a + m.qty, 0);
+  return `<section class="hero"><div><h2>Surplus food, matched before it spoils.</h2><p>Donations closest to expiry and the most urgent requests are served first. The nearest donor is found through the grid, so nothing is compared against everything.</p></div>
+    <div class="stats"><div class="stat"><b>${meals}</b><span>meals matched</span></div><div class="stat"><b>${nD}</b><span>open donations</span></div><div class="stat"><b>${nR}</b><span>open requests</span></div><div class="stat ${soon !== null && soon <= 3 ? "hot" : ""}"><b>${soon === null ? "–" : soon + " h"}</b><span>until next spoils</span></div></div></section>
+  <div class="grid2">
+    <section class="card"><h2>City map</h2><p class="sub">Squares are donors, circles are recipients. Shaded cells were scanned for the latest request, within ${MAX_RADIUS} km.</p>
+      ${mapSVG()}
+      <div class="legend"><span><i style="background:var(--brand)"></i>Donor</span><span><i style="background:var(--urgent);border-radius:50%"></i>Recipient</span><span><i style="background:var(--warn)"></i>Incomplete profile</span><span><i style="background:var(--brand);height:3px;vertical-align:3px"></i>Match</span><span><i style="background:var(--info);opacity:.3"></i>Grid cells scanned</span></div></section>
+    <section class="card"><h2>Activity</h2><p class="sub">Notifications and system messages, newest first.</p><ul class="feed">${feedHTML()}</ul></section>
+  </div>
+  <div class="grid2e">
+    <section class="card"><div class="card-h"><div><h2>Donation heap</h2><p class="sub">Min-heap by expiry. The top entry is closest to spoiling.</p></div><span class="pill mute">${nD} open</span></div><ul class="list">${dHtml}</ul></section>
+    <section class="card"><div class="card-h"><div><h2>Request heap</h2><p class="sub">Min-heap by urgency. The top entry is served first.</p></div><span class="pill mute">${nR} open</span></div><ul class="list">${rHtml}</ul></section>
+  </div>`;
+}
+
+function viewDonate() {
+  const p = me();
+  const gate = p.type !== "D" ? `<div class="notice">You are acting as a recipient. Choose a donor in “Acting as” to donate.</div>` : !complete(p) ? `<div class="notice">This profile is incomplete. Add a phone number in Profiles to donate.</div>` : "";
+  return `<div class="grid-form"><section class="card"><h2>Donate food</h2><p class="sub">Donating as <b>${esc(p.name)}</b> (${p.id}).</p>${gate}
+    <form id="donateForm"><label class="field"><span>Food type</span><input id="dFood" type="text" list="foods" value="dal" required><datalist id="foods">${FOODS.map(f => `<option value="${f}">`).join("")}</datalist></label>
+      <div class="row2"><label class="field"><span>Quantity (meals)</span><input id="dQty" type="number" min="1" max="1000" value="25" required></label>
+      <label class="field"><span>Hours until expiry</span><input id="dHrs" type="number" min="0" max="72" value="5" required></label></div>
+      <label class="check"><input id="dQual" type="checkbox" checked><span>Food is fresh and covered or sealed (quality check)</span></label>
+      <button class="btn primary" type="submit">Submit donation</button></form></section>${traceHTML("What happened")}</div>`;
+}
+
+function viewRequest() {
+  const p = me();
+  const gate = p.type !== "R" ? `<div class="notice">You are acting as a donor. Choose a recipient in “Acting as” to request food.</div>` : !complete(p) ? `<div class="notice">This profile is incomplete. Add a phone number in Profiles to request.</div>` : "";
+  return `<div class="grid-form"><section class="card"><h2>Request food</h2><p class="sub">Requesting as <b>${esc(p.name)}</b> (${p.id}).</p>${gate}
+    <form id="requestForm"><label class="field"><span>Food type</span><input id="rFood" type="text" list="foods2" value="bread" required><datalist id="foods2">${FOODS.map(f => `<option value="${f}">`).join("")}</datalist></label>
+      <label class="field"><span>Quantity needed</span><input id="rQty" type="number" min="1" max="1000" value="10" required></label>
+      <div class="field"><span>Urgency (1 = critical)</span><div class="seg">${[1, 2, 3, 4, 5].map(n => `<label><input type="radio" name="urg" value="${n}" ${n === 2 ? "checked" : ""}><span>${n}</span></label>`).join("")}</div></div>
+      <button class="btn primary" type="submit">Submit request</button></form></section>${traceHTML("What happened")}</div>`;
+}
+
+function viewProfiles() {
+  const rows = [...S.profiles.values()].map(p => {
+    const mine = p.type === "D" ? S.donations.filter(d => d.donorId === p.id).length : S.requests.filter(r => r.recipId === p.id).length;
+    return `<tr><td class="mono">${p.id}</td><td>${esc(p.name)}</td><td>${p.type === "D" ? "Donor" : "Recipient"}</td><td class="mono">${esc(p.phone || "-")}</td><td class="mono">(${p.x}, ${p.y})</td><td>${esc(city.hubs[city.nearestHub(p.x, p.y)].name)}</td>
+      <td>${p.active ? "" : '<span class="pill mute">inactive</span> '}${complete(p) ? '<span class="pill good">complete</span>' : '<span class="pill warn">incomplete</span>'}</td><td>${mine}</td>
+      <td><button class="btn sm" data-act="${p.id}" type="button">Act as</button> <button class="btn sm" data-toggle="${p.id}" type="button">${p.active ? "Deactivate" : "Activate"}</button> ${!p.phone.trim() || p.phone.trim() === "-" ? `<button class="btn sm" data-phone="${p.id}" type="button">Add phone</button>` : ""}</td></tr>`; }).join("");
+  return `<div class="grid2"><section class="card"><h2>Profiles</h2><p class="sub">Stored in a hash map keyed by ID, so any profile is found without searching a list.</p><div class="scroll"><table><thead><tr><th>ID</th><th>Name</th><th>Role</th><th>Phone</th><th>Location</th><th>Nearest hub</th><th>Status</th><th>Entries</th><th></th></tr></thead><tbody>${rows}</tbody></table></div></section>
+  <section class="card"><h2>Register</h2><p class="sub">Leave the phone empty to see the profile-incomplete error.</p><form id="regForm">
+    <div class="field"><span>Role</span><div class="seg"><label><input type="radio" name="role" value="D" checked><span>Donor</span></label><label><input type="radio" name="role" value="R"><span>Recipient</span></label></div></div>
+    <label class="field"><span>Name</span><input id="gName" type="text" required placeholder="e.g. Raj Sweets"></label>
+    <label class="field"><span>Phone</span><input id="gPhone" type="tel" placeholder="optional now"></label>
+    <div class="row2"><label class="field"><span>X (0-100 km)</span><input id="gX" type="number" min="0" max="100" value="40" required></label><label class="field"><span>Y (0-100 km)</span><input id="gY" type="number" min="0" max="100" value="40" required></label></div>
+    <button class="btn primary" type="submit">Create profile</button></form></section></div>`;
+}
+
+function viewMatches() {
+  const ms = S.history.toArray().reverse();
+  const rows = ms.map(m => `<tr><td class="mono">#${m.id}</td><td>${m.qty} × ${esc(m.food)}</td><td>${esc(S.profiles.get(m.donorId).name)} <span class="mono">${m.donorId}</span></td><td>${esc(S.profiles.get(m.recipId).name)} <span class="mono">${m.recipId}</span></td><td>${km(m.km)}</td><td>${m.route.map(i => esc(city.hubs[i].name)).join(" → ")}</td><td class="mono">hour ${m.t}</td></tr>`).join("");
+  return `<section class="card"><h2>Match history</h2><p class="sub">Stored as a linked list, oldest at the tail. Each route is the fewest-hops path between the two hubs, found with BFS.</p>
+    ${ms.length ? `<div class="scroll"><table><thead><tr><th>Match</th><th>Food</th><th>Donor</th><th>Recipient</th><th>Distance</th><th>Delivery route</th><th>When</th></tr></thead><tbody>${rows}</tbody></table></div>` : `<div class="empty">No matches yet. Donate or request food to create one.</div>`}</section>`;
+}
+
+function graphSVG(a) {
+  const Y = y => 100 - y, hot = new Set((a && a.edges) || []);
+  const roads = city.edges.map(e => { const on = hot.has(e.u + "-" + e.v); const A = city.hubs[e.u], B = city.hubs[e.v];
+    return `<line x1="${A.x}" y1="${Y(A.y)}" x2="${B.x}" y2="${Y(B.y)}" stroke="${on ? "var(--brand)" : "var(--line)"}" stroke-width="${on ? 1.6 : .7}"/><text x="${(A.x + B.x) / 2}" y="${Y((A.y + B.y) / 2) - 1}" font-size="2.4" text-anchor="middle" fill="${on ? "var(--brand)" : "var(--muted)"}" style="paint-order:stroke;stroke:var(--surface-2);stroke-width:.8px">${e.w}</text>`; }).join("");
+  const hubs = city.hubs.map((h, i) => { const k = a && a.visit ? a.visit.indexOf(i) : -1, on = k >= 0 && k < (a.shown ?? 99);
+    return `<g><circle cx="${h.x}" cy="${Y(h.y)}" r="4" fill="${on ? "var(--brand)" : "var(--surface)"}" stroke="${on ? "var(--brand)" : "var(--muted)"}" stroke-width=".6"/><text x="${h.x}" y="${Y(h.y) + 1.2}" font-size="3.4" text-anchor="middle" font-weight="700" fill="${on ? "var(--brand-ink)" : "var(--ink)"}">${on ? k + 1 : i}</text><text x="${h.x}" y="${Y(h.y) + 8}" font-size="2.6" text-anchor="middle" fill="var(--ink)">${esc(h.name)}</text></g>`; }).join("");
+  return `<svg class="mapbox" viewBox="-6 -4 112 112" role="img" aria-label="Hub road network graph">${roads}${hubs}</svg>`;
+}
+
+function viewGraph() {
+  const A = S.trAlgo;
+  const M = `<table class="mx"><thead><tr><th></th>${city.hubs.map((_, i) => `<th>${i}</th>`).join("")}</tr></thead><tbody>${city.matrix.map((row, i) => `<tr><th>${i}</th>${row.map(v => `<td class="${v ? "on" : "zero"}">${v}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  const L = city.adj.map((nb, i) => `${i} ${city.hubs[i].name.padEnd(15)} → ${nb.map(([v, w]) => `${v}[${w}]`).join("  ")}`).join("\n");
+  const src = S.graphSrc ?? 0;
+  const info = A ? `<p class="sub" style="margin-top:8px"><b>${A.title}</b></p><pre class="pre">${esc(A.text)}</pre>` : `<p class="sub" style="margin-top:8px">Pick an algorithm to run it on the road network.</p>`;
+  return `<div class="grid2"><section class="card"><h2>Road network</h2><p class="sub">8 collection hubs. Edge labels are road lengths in km.</p>${graphSVG(A)}
+      <div class="algo"><label for="gSrc" class="mono">start hub</label><select id="gSrc" style="width:auto">${city.hubs.map((h, i) => `<option value="${i}" ${i === src ? "selected" : ""}>${i} · ${esc(h.name)}</option>`).join("")}</select>
+      <button class="btn sm" data-algo="bfs" type="button">BFS</button><button class="btn sm" data-algo="dfs" type="button">DFS</button><button class="btn sm" data-algo="prim" type="button">Prim's MST</button><button class="btn sm" data-algo="kruskal" type="button">Kruskal's MST</button></div>${info}</section>
+    <div style="display:grid;gap:16px;align-content:start;min-width:0"><section class="card"><h2>Adjacency matrix</h2><p class="sub">Direct road length between two hubs, 0 if none. Checking one pair takes constant time.</p><div class="scroll">${M}</div></section>
+    <section class="card"><h2>Adjacency list</h2><p class="sub">Each hub lists only its neighbours as hub[km]. Traversals use this form.</p><pre class="pre">${esc(L)}</pre></section></div></div>`;
+}
+
+function render() {
+  $("#actAs").innerHTML = [...S.profiles.values()].map(p => `<option value="${p.id}" ${p.id === S.me ? "selected" : ""}>${esc(p.name)} (${p.type === "D" ? "donor" : "recipient"})</option>`).join("");
+  $("#clock").textContent = "Hour " + S.clock;
+  $("#tabs").innerHTML = TABS.map(([k, l]) => `<button role="tab" aria-selected="${S.tab === k}" data-tab="${k}" type="button">${l}</button>`).join("");
+  const views = { board: viewBoard, donate: viewDonate, request: viewRequest, profiles: viewProfiles, graph: viewGraph, matches: viewMatches };
+  $("#view").innerHTML = views[S.tab]();
+  S.flash = null;
+}
+
+function runAlgo(kind) {
+  const src = +$("#gSrc").value; S.graphSrc = src;
+  const name = i => city.hubs[i].name;
+  clearInterval(anim);
+  if (kind === "bfs" || kind === "dfs") {
+    const r = kind === "bfs" ? city.bfs(src).order : city.dfs(src);
+    const lv = kind === "bfs" ? city.bfs(src).level : null;
+    S.trAlgo = { visit: r, shown: 0, title: kind === "bfs" ? "BFS, using the linked-list queue" : "DFS, using recursion", text: "" };
+    const setText = n => { S.trAlgo.shown = n; S.trAlgo.text = r.slice(0, n).map((v, k) => `${k + 1}. ${name(v)}${lv ? "  (" + lv[v] + " hop" + (lv[v] === 1 ? "" : "s") + ")" : ""}`).join("\n"); };
+    setText(0); render(); let n = 0;
+    anim = setInterval(() => { n++; setText(n); render(); if (n >= r.length) clearInterval(anim); }, 450);
+  } else {
+    const r = kind === "prim" ? city.prim() : city.kruskal();
+    S.trAlgo = { edges: r.tree.flatMap(e => [e.u + "-" + e.v, e.v + "-" + e.u]), title: (kind === "prim" ? "Prim's" : "Kruskal's") + " MST, " + r.total + " km in total",
+      text: r.tree.map(e => `${name(e.u)} — ${name(e.v)}  ${e.w} km`).join("\n") + `\n\nTotal ${r.total} km across ${r.tree.length} roads` };
+    render();
+  }
+}
+
+/* events */
+document.addEventListener("click", e => {
+  const t = e.target.closest("button"); if (!t) return;
+  if (t.dataset.tab) { S.tab = t.dataset.tab; S.trace = null; render(); }
+  else if (t.dataset.adv) { S.clock += +t.dataset.adv; log("info", `Clock moved to <b>hour ${S.clock}</b>.`); purgeExpired(); const res = runMatching(); render(); toast(`Clock is now hour ${S.clock}` + (res.some(o => o.ok) ? ". New match found." : "")); }
+  else if (t.id === "resetBtn") { clearInterval(anim); seedDemo(); render(); toast("Demo data restored."); }
+  else if (t.dataset.act) { S.me = t.dataset.act; render(); toast("Now acting as " + me().name); }
+  else if (t.dataset.toggle) { const p = S.profiles.get(t.dataset.toggle); p.active = !p.active; log("info", `${esc(p.name)} is now <b>${p.active ? "active" : "inactive"}</b>.`); runMatching(); render(); }
+  else if (t.dataset.phone) { const p = S.profiles.get(t.dataset.phone); p.phone = "98100 " + String(Math.floor(10000 + Math.random() * 89999)); log("info", `${esc(p.name)} added a phone number. Profile is now complete.`); runMatching(); render(); toast("Phone added. Waiting entries were re-checked."); }
+  else if (t.dataset.algo) runAlgo(t.dataset.algo);
+});
+$("#actAs").addEventListener("change", e => { S.me = e.target.value; S.trace = null; render(); });
+document.addEventListener("submit", e => {
+  e.preventDefault();
+  if (e.target.id === "donateForm") {
+    S.trace = submitDonation(me(), { food: $("#dFood").value, qty: $("#dQty").value, hours: $("#dHrs").value, quality: $("#dQual").checked });
+    render(); toast(S.trace.some(s => s.s === "fail") ? "Donation not accepted. See the steps." : "Donation submitted.");
+  } else if (e.target.id === "requestForm") {
+    S.trace = submitRequest(me(), { food: $("#rFood").value, qty: $("#rQty").value, urgency: document.querySelector("input[name=urg]:checked").value });
+    render(); toast(S.trace.some(s => s.s === "fail") ? "Request not accepted. See the steps." : "Request submitted.");
+  } else if (e.target.id === "regForm") {
+    const p = addProfile({ type: document.querySelector("input[name=role]:checked").value, name: $("#gName").value, phone: $("#gPhone").value, x: $("#gX").value, y: $("#gY").value });
+    S.me = p.id; log("info", `<b>${esc(p.name)}</b> registered as ${p.id}${complete(p) ? "" : " (profile incomplete)"}.`); render();
+    toast(complete(p) ? "Profile created." : "Profile created but incomplete. Add a phone to continue.");
+  }
+});
+
+seedDemo(); render();
+</script>
